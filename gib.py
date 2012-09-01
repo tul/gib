@@ -1,12 +1,13 @@
 from pbs import git
 import sys,os,datetime
 
+def clearIndex():
+    index=git('ls-files')
+    if index.strip()!='':
+        git('rm','--cached','-r','.')
+
 def makeTreeFromDir(backupname,path):
     """ imports a path into the git repro and makes a tree from it. returns the tree sha """
-    def clearIndex():
-        index=git('ls-files')
-        if index.strip()!='':
-            git('--work-tree',path,'rm','--cached','-r','.')
     clearIndex()
     # add current dir to the index (also import all objects)
     git('--work-tree',path,'add','.')
@@ -41,11 +42,66 @@ def snapshot():
     else:
         print "Didn't make snapshot, no changes since last snapshot on %s"%(last[1])
 
+def list_():
+    if len(sys.argv)!=2 and len(sys.argv)!=3:
+        print 'Wrong number of arguments for list command'
+        sys.exit(1)
+    if len(sys.argv)==2:
+        # list all snapshots
+        startwith='refs/gib/'
+    else:
+        startwith='refs/gib/%s/'%sys.argv[2]
+    allRefs=str(git('show-ref'))
+    for line in str(allRefs).splitlines():
+        ref=line.split(' ',1)[1]
+        if ref.startswith(startwith):
+            print ref[9:]
+
+def getAllRefs():
+    """ returns a dict with all refs in it, keyed by reference name """
+    allRefs={}
+    for x in str(git('show-ref')).splitlines():
+        (sha,ref)=x.split(' ',1) 
+        allRefs[ref]=sha
+    return allRefs
+
+def extract():
+    if len(sys.argv)!=5:
+        print 'Wrong number of arguments for extract command'
+        sys.exit(1)
+    (backupname,snapshotname,destdir)=sys.argv[2:5]
+    ref='refs/gib/%s/snapshots/%s'%(backupname,snapshotname)
+    allRefs=getAllRefs()
+    if ref in allRefs:
+        tree=allRefs[ref]
+        if os.path.exists(destdir):
+            print "Destination %s' already exists - cannot extract!"%(destdir)
+            sys.exit(1)
+        clearIndex()
+        git('read-tree',tree)
+        if not destdir.endswith(os.sep):
+            destdir+=os.sep
+        git('checkout-index','--prefix=%s'%destdir,'-a')
+        clearIndex()
+        print "Extracted backup of '%s' snapshot '%s' to '%s'"%(backupname,snapshotname,destdir)
+    else:
+        print 'Snapshot %s for backup %s does not exist'%(snapshotname,backupname)
+        print 'Tested %s'%ref
+        sys.exit(1)
+
 def usage():
     print 'usage:'
     print 'gib snapshot <backupname> <path to backup>'
-    print 'will take a snapshot of the given path and save it'
-    print 'it will write the tree to refs/gib/backupname/snapshots/YYYYMMDD_HHMMSS'
+    print ' will take a snapshot of the given path and save it'
+    print ' it will write the tree to refs/gib/backupname/snapshots/YYYYMMDD_HHMMSS'
+    print 'gib list [backupname]'
+    print ' will list all available snapshots for [backupname]'
+    print ' if backupname is ommitted, it will list all available snapshots for all backups'
+    print 'gib list [backupname]'
+    print ' will list all available snapshots for [backupname]'
+    print ' if backupname is ommitted, it will list all available snapshots for all backups'
+    print 'gib extract <backupname> <snapshotname> <destdir>'
+    print ' extract a backup to the directory named. <destdir> must not already exist'
 
 if __name__ == "__main__":
     if not os.path.isdir('.git'):
@@ -56,3 +112,12 @@ if __name__ == "__main__":
         sys.exit(1)
     if sys.argv[1]=='snapshot':
         snapshot()
+    elif sys.argv[1]=='list':
+        list_()
+    elif sys.argv[1]=='extract':
+        extract()
+    elif sys.argv[1]=='help':
+        usage()
+    else:
+        print 'Unknown command %s'%sys.argv[1]
+        sys.exit(1)
