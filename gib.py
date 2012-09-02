@@ -6,12 +6,39 @@ def clearIndex():
     if index.strip()!='':
         git('rm','--cached','-r','.')
 
-def makeTreeFromDir(backupname,path):
+def makeTreeFromDir(backupname,paths):
     """ imports a path into the git repro and makes a tree from it. returns the tree sha """
     clearIndex()
-    # add current dir to the index (also import all objects)
-    git('--work-tree',path,'add','.')
-    # write the tree for this and get the tree sha
+    topLevel=[]
+    filesInTree=[]
+    dirsInTree=[]
+    for path in paths:
+        if not os.path.exists(path):
+            print "Path '%s' does not exist, cannot backup"%path
+            sys.exit(1)
+        bn=os.path.basename(path)
+        if bn in topLevel:
+            print "Multiple paths ending in '%s' are being backed up, not supported"%bn
+            sys.exit(1)
+        if os.path.isdir(path):
+            # add current dir to the index (also import all objects)
+            git('--work-tree',path,'add','.')
+            # write the tree for this and get the tree sha
+            tree=git('write-tree').strip()
+            clearIndex()
+            dirsInTree.append((bn,tree))
+        else:
+            fileHash=git('hash-object','-w',path).strip()
+            filesInTree.append((bn,fileHash))
+    clearIndex()
+    # now make the index
+    for (dir,tree) in dirsInTree:
+        git('read-tree',tree,'--prefix=%s/'%dir)
+    for (file,hash) in filesInTree:
+        # see http://git-scm.com/book/en/Git-Internals-Git-Objects
+        # adding with 10644 means normal file
+        # cacheinfo means we have the hash, but no file in our work dir corresponding to it
+        git('update-index','--add','--cacheinfo','10644',hash,file)
     tree=git('write-tree').strip()
     clearIndex()
     return tree
@@ -28,13 +55,13 @@ def getLatestSnapshot(backupname):
     return snapshots[0] if len(snapshots)>0 else None
 
 def snapshot():
-    if len(sys.argv)!=4:
+    if len(sys.argv)<4:
         print 'Wrong number of parameters for snapshot command'
         sys.exit(1)
     backupname=sys.argv[2]
-    backuppath=sys.argv[3]
+    backuppaths=sys.argv[3:]
     last=getLatestSnapshot(backupname)
-    tree=makeTreeFromDir(backupname,backuppath)
+    tree=makeTreeFromDir(backupname,backuppaths)
     if not last or tree!=last[0]:
         ref='refs/gib/%s/snapshots/%s'%(backupname,datetime.datetime.now().strftime('%Y%m%d_%H%M%S'))
         git('update-ref',ref,tree)
@@ -91,8 +118,12 @@ def extract():
 
 def usage():
     print 'usage:'
-    print 'gib snapshot <backupname> <path to backup>'
-    print ' will take a snapshot of the given path and save it'
+    print 'gib snapshot <backupname> <path to backup>+'
+    print ' will take a snapshot of the given path(s) and save it'
+    print ' directories will be recursively backed up and placed in a dir at the'
+    print ' root level of the snapshot'
+    print ' if a path is a file, the file will be backed up to the root level of'
+    print ' the snapshot'
     print ' it will write the tree to refs/gib/backupname/snapshots/YYYYMMDD_HHMMSS'
     print 'gib list [backupname]'
     print ' will list all available snapshots for [backupname]'
