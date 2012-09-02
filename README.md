@@ -49,6 +49,10 @@ To extract a backup:
 	> gib.py extract mybackup 20120902_014904 somedir
 	Extracted backup of 'mybackup' snapshot '20120902_014904' to 'somedir/' 
 
+To get help:
+
+	> git.py --help
+
 How I use it
 ------------
 On a web server with a blog and uploads etc, I first dump the MySQL database to a tmp file, taking care to provide the --skip-dump-date option to mysqldump to ensure the file only changes if the database has changed. I then use gib to backup the dumped SQL file and the blog dir (which also includes all uploaded files) into the gib backup repro. I do this every 24 hours. If I want to sync a snapshot from home, I use git to fetch the ref of the snapshot I'm interested in and it pull just the files in that snapshot that I do not already have. I can then extract it to a directory, import the DB and run my local webserver.
