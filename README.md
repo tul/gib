@@ -25,29 +25,29 @@ First you need a git repro to backup into. You can use one repro for several dif
 
 Let's create a new repro:
 
-> > mkdir backups
-> > cd backups
-> > git init
+	> mkdir backups
+	> cd backups
+	> git init
 
 Now backup some file (note these commands are executed from within the git repro, like any other git command)
 
-> > gib.py snapshot mybackup ../../mydir 
-> Made snapshot refs/gib/mybackup/snapshots/20120902_014904 = 94adf1a14c7e172836352e048b870c2fdba576ff
+	> gib.py snapshot mybackup ../../mydir
+	Made snapshot refs/gib/mybackup/snapshots/20120902_014904 = 94adf1a14c7e172836352e048b870c2fdba576ff
 
 This snapshot command has imported the contents of 'mydir' into the repro and tagged the resulting tree with the current time and the symbolic name 'mybackup'. If you do it again and mydir has not changed it doesn't create a new ref:
 
-> > gib.py snapshot mybackup ../../mydir 
-> Didn't make snapshot, no changes since last snapshot on refs/gib/mybackup/snapshots/20120902_014904
+	> gib.py snapshot mybackup ../../mydir 
+	Didn't make snapshot, no changes since last snapshot on refs/gib/mybackup/snapshots/20120902_014904
 
 To list the available backups:
 
-> > gib.py list
-> mybackup/snapshots/20120902_014904
+	> gib.py list
+	mybackup/snapshots/20120902_014904
 
 To extract a backup:
 
-> > gib.py extract mybackup 20120902_014904 somedir
-> Extracted backup of 'mybackup' snapshot '20120902_014904' to 'somedir/' 
+	> gib.py extract mybackup 20120902_014904 somedir
+	Extracted backup of 'mybackup' snapshot '20120902_014904' to 'somedir/' 
 
 How I use it
 ------------
