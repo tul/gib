@@ -27,13 +27,19 @@
 # THE SOFTWARE.
 #===============================================================================
 
-from pbs import git
+import pbs
 import sys,os,datetime
+
+# set this to specify the dir dir should be somewhere other than the current directory
+gitdir='.'
+
+def git(*args):
+    return pbs.git('--git-dir=%s'%gitdir,*args)
 
 def clearIndex():
     index=git('ls-files')
     if index.strip()!='':
-        git('rm','--cached','-r','.')
+        git('rm','--cached','-rf','.')
 
 def makeTreeFromDir(backupname,paths):
     """ imports a path into the git repro and makes a tree from it. returns the tree sha """
@@ -43,12 +49,10 @@ def makeTreeFromDir(backupname,paths):
     dirsInTree=[]
     for path in paths:
         if not os.path.exists(path):
-            print "Path '%s' does not exist, cannot backup"%path
-            sys.exit(1)
+            fatal("Path '%s' does not exist, cannot backup"%path)
         bn=os.path.basename(path)
         if bn in topLevel:
-            print "Multiple paths ending in '%s' are being backed up, not supported"%bn
-            sys.exit(1)
+            fatal("Multiple paths ending in '%s' are being backed up, not supported"%bn)
         if os.path.isdir(path):
             # add current dir to the index (also import all objects)
             git('--work-tree',path,'add','.')
@@ -62,7 +66,7 @@ def makeTreeFromDir(backupname,paths):
     clearIndex()
     # now make the final snapshot index
     for (dir,tree) in dirsInTree:
-        git('read-tree',tree,'--prefix=%s/'%dir)
+        git('read-tree','-i',tree,'--prefix=%s/'%dir)
     for (file,hash) in filesInTree:
         # see http://git-scm.com/book/en/Git-Internals-Git-Objects
         # adding with 10644 means normal file (TODO perhaps check if it should be marked as executable)
@@ -74,21 +78,19 @@ def makeTreeFromDir(backupname,paths):
 
 def getLatestSnapshot(backupname):
     """ returns the (sha,refname) pair for the last snapshot. returns None if there is no last snapshot """
-    allRefs=str(git('show-ref'))
+    allRefs=getAllRefs()
     snapshots=[]
-    for line in str(allRefs).splitlines():
-        (sha,ref)=line.split(' ',1)
+    for (ref,sha) in allRefs.items():
         if ref.startswith('refs/gib/%s/snapshots/'%backupname):
             snapshots.append((sha,ref))
     snapshots.sort(key=lambda tup : tup[1],reverse=True)
     return snapshots[0] if len(snapshots)>0 else None
 
-def snapshot():
-    if len(sys.argv)<4:
-        print 'Wrong number of parameters for snapshot command'
-        sys.exit(1)
-    backupname=sys.argv[2]
-    backuppaths=sys.argv[3:]
+def snapshot(args):
+    if len(args)<2:
+        fatal('Wrong number of parameters for snapshot command')
+    backupname=args[0]
+    backuppaths=args[1:]
     last=getLatestSnapshot(backupname)
     tree=makeTreeFromDir(backupname,backuppaths)
     if not last or tree!=last[0]:
@@ -100,50 +102,49 @@ def snapshot():
 
 def list_():
     if len(sys.argv)!=2 and len(sys.argv)!=3:
-        print 'Wrong number of arguments for list command'
-        sys.exit(1)
+        fatal('Wrong number of arguments for list command')
     if len(sys.argv)==2:
         # list all snapshots
         startwith='refs/gib/'
     else:
         startwith='refs/gib/%s/'%sys.argv[2]
-    allRefs=str(git('show-ref'))
-    for line in str(allRefs).splitlines():
-        ref=line.split(' ',1)[1]
+    allRefs=getAllRefs()
+    for (ref,sha) in allRefs.items():
         if ref.startswith(startwith):
             print ref[9:]
 
 def getAllRefs():
     """ returns a dict with all refs in it, keyed by reference name """
     allRefs={}
-    for x in str(git('show-ref')).splitlines():
-        (sha,ref)=x.split(' ',1) 
-        allRefs[ref]=sha
+    try:
+        for x in str(git('show-ref')).splitlines():
+            (sha,ref)=x.split(' ',1) 
+            allRefs[ref]=sha
+    except pbs.ErrorReturnCode_1:
+        pass
     return allRefs
 
 def extract():
     if len(sys.argv)!=5:
-        print 'Wrong number of arguments for extract command'
-        sys.exit(1)
+        fatal('Wrong number of arguments for extract command')
     (backupname,snapshotname,destdir)=sys.argv[2:5]
     ref='refs/gib/%s/snapshots/%s'%(backupname,snapshotname)
     allRefs=getAllRefs()
     if ref in allRefs:
         tree=allRefs[ref]
         if os.path.exists(destdir):
-            print "Destination %s' already exists - cannot extract!"%(destdir)
-            sys.exit(1)
+            fatal("Destination %s' already exists - cannot extract!"%(destdir))
         clearIndex()
         git('read-tree',tree)
         if not destdir.endswith(os.sep):
             destdir+=os.sep
-        git('checkout-index','--prefix=%s'%destdir,'-a')
+        if not os.path.isdir(destdir):
+            os.makedirs(destdir)
+        git('--work-tree=%s'%destdir,'checkout-index','-a')
         clearIndex()
         print "Extracted backup of '%s' snapshot '%s' to '%s'"%(backupname,snapshotname,destdir)
     else:
-        print 'Snapshot %s for backup %s does not exist'%(snapshotname,backupname)
-        print 'Tested %s'%ref
-        sys.exit(1)
+        fatal('Snapshot %s for backup %s does not exist\nTested %s'%(snapshotname,backupname,ref))
 
 def usage():
     print 'gib 0.1'
@@ -170,15 +171,24 @@ def usage():
     print '  <destdir> must not already exist'
     print
 
-if __name__ == "__main__":
-    if not os.path.isdir('.git'):
-        fatal("Should be ran from inside the git repro")
+invokedFromShell=False
+
+def fatal(x):
+    print x
+    if invokedFromShell:
         sys.exit(1)
+    else:
+        raise(Exception(x))
+
+if __name__ == "__main__":
+    invokedFromShell=True
+    if not os.path.isdir(os.path.join(gitdir,'.git')) and not (os.path.isdir('objects') and os.path.isdir('refs')):
+        fatal("Should be ran from inside the git repro")
     if len(sys.argv)==1:
         usage()
         sys.exit(1)
     if sys.argv[1]=='snapshot':
-        snapshot()
+        snapshot(sys.argv[2:])
     elif sys.argv[1]=='list':
         list_()
     elif sys.argv[1]=='extract':
