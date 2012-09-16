@@ -36,10 +36,19 @@ gitdir='.'
 def git(*args):
     return pbs.git('--git-dir=%s'%gitdir,*args)
 
+def git_pipe(input,*args):
+    return pbs.git(input,'--git-dir=%s'%gitdir,*args)
+
 def clearIndex():
     index=git('ls-files')
     if index.strip()!='':
         git('rm','--cached','-rf','.')
+
+def getEmptyDirs(path):
+    """ generator func to list all the empty dirs in a dir """
+    for (dirpath,dirnames,filenames) in os.walk(path):
+        if len(filenames)==0 and len(dirnames)==0:
+            yield dirpath
 
 def makeTreeFromDir(backupname,paths):
     """ imports a path into the git repro and makes a tree from it. returns the tree sha """
@@ -47,6 +56,7 @@ def makeTreeFromDir(backupname,paths):
     topLevel=[]
     filesInTree=[]
     dirsInTree=[]
+    emptyFileHash=None
     for path in paths:
         if not os.path.exists(path):
             fatal("Path '%s' does not exist, cannot backup"%path)
@@ -56,6 +66,12 @@ def makeTreeFromDir(backupname,paths):
         if os.path.isdir(path):
             # add current dir to the index (also import all objects)
             git('--work-tree',path,'add','.')
+            # empty dirs are not added by the above, pretend there is a .gibkeep file in each
+            # (we will delete this when extracting backups)
+            for emptyDir in getEmptyDirs(path):
+                if not emptyFileHash:
+                    emptyFileHash=git_pipe(pbs.echo('-n',''),'hash-object','-w','--stdin').strip()
+                git('update-index','--add','--cacheinfo','10644',emptyFileHash,os.path.join(os.path.relpath(emptyDir,path),'.gibkeep'))
             # write the tree for this and get the tree sha
             tree=git('write-tree').strip()
             clearIndex()
@@ -141,6 +157,10 @@ def extract():
         if not os.path.isdir(destdir):
             os.makedirs(destdir)
         git('--work-tree=%s'%destdir,'checkout-index','-a')
+        # get rid of the .gibkeep files that were only added to track empty dirs
+        for file in str(git('ls-files','--cached')).splitlines():
+            if file.endswith('.gibkeep'):
+                pbs.rm(os.path.join(destdir,file))
         clearIndex()
         print "Extracted backup of '%s' snapshot '%s' to '%s'"%(backupname,snapshotname,destdir)
     else:
