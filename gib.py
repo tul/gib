@@ -65,7 +65,7 @@ def makeTreeFromDir(backupname,paths):
             fatal("Multiple paths ending in '%s' are being backed up, not supported"%bn)
         if os.path.isdir(path):
             # add current dir to the index (also import all objects)
-            git('--work-tree',path,'add','.')
+            git('--work-tree',path,'add','-f','.')
             # empty dirs are not added by the above, pretend there is a .gibkeep file in each
             # (we will delete this when extracting backups)
             for emptyDir in getEmptyDirs(path):
@@ -116,6 +116,16 @@ def snapshot(args):
     else:
         print "Didn't make snapshot, no changes since last snapshot on %s"%(last[1])
 
+def delete_():
+    if len(sys.argv)!=4:
+        fatal('Wrong number of arguments for delete command')
+    ref='refs/gib/%s/snapshots/%s'%(sys.argv[2],sys.argv[3])
+    allRefs=getAllRefs()
+    if ref in allRefs:
+        git('update-ref','-d',ref)
+    else:
+        print 'Ref "%s" does not exist'%ref
+
 def list_():
     if len(sys.argv)!=2 and len(sys.argv)!=3:
         fatal('Wrong number of arguments for list command')
@@ -125,9 +135,12 @@ def list_():
     else:
         startwith='refs/gib/%s/'%sys.argv[2]
     allRefs=getAllRefs()
+    toPrint=[]
     for (ref,sha) in allRefs.items():
         if ref.startswith(startwith):
-            print ref[9:]
+            toPrint.append(ref[9:])
+    toPrint.sort()
+    print '\n'.join(toPrint)
 
 def getAllRefs():
     """ returns a dict with all refs in it, keyed by reference name """
@@ -190,6 +203,10 @@ def usage():
     print '  extract a backup to the directory <destdir>'
     print '  <destdir> must not already exist'
     print
+    print 'gib delete <backupname> <snapshotname>'
+    print '  removes a backup from the system'
+    print '  space won\'t be reclaimed until a "git gc" is done'
+    print
 
 invokedFromShell=False
 
@@ -213,6 +230,8 @@ if __name__ == "__main__":
         list_()
     elif sys.argv[1]=='extract':
         extract()
+    elif sys.argv[1]=='delete':
+        delete_()
     elif sys.argv[1]=='help' or sys.argv[1]=='--help':
         usage()
     else:
