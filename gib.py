@@ -31,7 +31,7 @@ import pbs
 import sys,os,datetime
 
 # set this to specify the dir dir should be somewhere other than the current directory
-gitdir='.'
+gitdir='.git'
 
 def git(*args):
     return pbs.git('--git-dir=%s'%gitdir,*args)
@@ -142,6 +142,31 @@ def list_():
     toPrint.sort()
     print '\n'.join(toPrint)
 
+def listremote():
+    if len(sys.argv)!=2 and len(sys.argv)!=3:
+        fatal('Wrong number of arguments for listremote command')
+    startswith='refs/gib/'
+    if len(sys.argv)==3:
+        startswith+=sys.argv[2]
+    for x in str(git('ls-remote','origin')).splitlines():
+        (has,ref)=x.split()
+        if ref.startswith(startswith):
+            print ref[9:]
+
+def fetch():
+    if len(sys.argv)!=2 and len(sys.argv)!=3 and len(sys.argv)!=4:
+        fatal('Wrong number of arguments for fetch command')
+    startswith='refs/gib/'
+    if len(sys.argv)>=3:
+        startswith+=sys.argv[2]
+    if len(sys.argv)>=4:
+        startswith+='/snapshots/'+sys.argv[3]
+    for x in str(git('ls-remote','origin')).splitlines():
+        (has,ref)=x.split()
+        if ref.startswith(startswith):
+            os.system('git --git-dir=%s fetch origin %s:%s'%(gitdir,ref,ref))
+
+
 def getAllRefs():
     """ returns a dict with all refs in it, keyed by reference name """
     allRefs={}
@@ -207,6 +232,16 @@ def usage():
     print '  removes a backup from the system'
     print '  space won\'t be reclaimed until a "git gc" is done'
     print
+    print 'gib list-remote [backupname]'
+    print '  list all remote backups for backupname'
+    print '  if backupname is omitted, lists all remote backups'
+    print '  always lists the git remote named "origin"'
+    print
+    print 'gib fetch <backupname> <snapshotname>'
+    print '  fetches a remote branch'
+    print '  after fetching, you can extract it'
+    print '  always fetches from the git remote named "origin"'
+    print
 
 invokedFromShell=False
 
@@ -219,7 +254,7 @@ def fatal(x):
 
 if __name__ == "__main__":
     invokedFromShell=True
-    if not os.path.isdir(os.path.join(gitdir,'.git')) and not (os.path.isdir('objects') and os.path.isdir('refs')):
+    if not (os.path.isdir(os.path.join(gitdir,'objects')) and os.path.isdir(os.path.join(gitdir,'refs'))):
         fatal("Should be ran from inside the git repro")
     if len(sys.argv)==1:
         usage()
@@ -232,6 +267,10 @@ if __name__ == "__main__":
         extract()
     elif sys.argv[1]=='delete':
         delete_()
+    elif sys.argv[1]=='list-remote':
+        listremote()
+    elif sys.argv[1]=='fetch':
+        fetch()
     elif sys.argv[1]=='help' or sys.argv[1]=='--help':
         usage()
     else:
